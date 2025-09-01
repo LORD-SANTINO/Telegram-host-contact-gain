@@ -151,8 +151,8 @@ async def all_messages(event):
 async def main():
     global client
     # Bot's own API_ID and API_HASH here - used only to run the bot and listen, no user login
-    api_id = int(os.getenv(
-    api_hash = 'your_bot_api_hash_here'
+    api_id = int(os.getenv("API_ID")
+    api_hash = os.getenv("API_HASH")
 
     client = TelegramClient('bot_session', api_id, api_hash)
     await client.start()
