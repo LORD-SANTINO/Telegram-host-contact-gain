@@ -3,6 +3,8 @@ import asyncio
 import json
 import vobject
 import random
+import time
+from telethon.errors import PeerFloodError, UserPrivacyRestrictedError, FloodWaitError
 from telethon import TelegramClient, events, errors
 from telethon.sessions import StringSession
 from telethon.tl.functions.contacts import ImportContactsRequest
@@ -13,6 +15,7 @@ user_states = {}    # e.g. {chat_id: {"step": "...", ...}}
 user_clients = {}   # e.g. {chat_id: TelegramClient instance}
 user_sessions = {}  # e.g. {chat_id: string_session}
 SESSIONS_DB = 'user_sessions.json'
+user_adding_states = {} 
 
 # Load bot API credentials from environment
 API_ID = int(os.getenv("API_ID"))
@@ -247,6 +250,87 @@ async def process_and_store_vcf(event, vcf_path):
 
     await event.reply(f"VCF processing complete. Imported {len(imported_users)} contacts.")
     os.remove(vcf_path)
+
+@client.on(events.NewMessage(pattern='/addmembers'))
+async def addmembers_start(event):
+    chat_id = event.chat_id
+    if chat_id not in user_clients:
+        await event.reply("You must be logged in first. Use /start.")
+        return
+    user_adding_states[chat_id] = {'step': 'waiting_channel'}
+    await event.reply("Please send the Telegram channel link or username where members should be added⚡.")
+
+@client.on(events.NewMessage)
+async def addmembers_handler(event):
+    chat_id = event.chat_id
+    if chat_id not in user_adding_states:
+        return
+
+    state = user_adding_states[chat_id]
+    text = event.raw_text.strip()
+
+    if state['step'] == 'waiting_channel':
+        try:
+            channel = await user_clients[chat_id].get_entity(text)
+            state['channel'] = channel
+            state['step'] = 'waiting_count'
+            await event.reply("Got channel. Now send the number of members to add.")
+        except Exception as e:
+            await event.reply(f"Invalid channel link 🙁 or username: {e}. Try again.")
+    elif state['step'] == 'waiting_count':
+        try:
+            count = int(text)
+            if count <= 0:
+                raise ValueError()
+            state['count'] = count
+            await event.reply(f"Preparing to add {count} members from your contacts...")
+            # Call adding function
+            await add_members(event, state)
+            del user_adding_states[chat_id]
+        except ValueError:
+            await event.reply("Please enter a valid positive number.")
+
+async def add_members(event, state):
+    chat_id = event.chat_id
+    client_instance = user_clients[chat_id]
+    channel = state['channel']
+    count = state['count']
+
+    # Load the user's imported contacts — adapt this to your storage system.
+    # For demo, you can keep contacts in memory or load from file
+    # Here: assume user_contacts.json stores { chat_id: list_of_contacts }
+    contacts_file = f'{chat_id}_contacts.json'
+    try:
+        with open(contacts_file, 'r') as f:
+            contacts = json.load(f)
+    except Exception:
+        await event.reply("No contacts found. Upload contacts via /upload_vcf first fool 🙄😂.")
+        return
+
+    # Pick random subset or first N
+    contacts_to_add = contacts[:count]
+
+    added_count = 0
+    for contact in contacts_to_add:
+        user = None
+        try:
+            user = await client_instance.get_input_entity(contact['id'])
+            await client_instance(InviteToChannelRequest(channel=channel, users=[user]))
+            added_count += 1
+            await event.reply(f"Added {contact.get('first_name', 'Unknown')} to the channel.")
+            time.sleep(60)  # Adjust or remove delay as appropriate
+        except PeerFloodError:
+            await event.reply("Flood error: Too many requests. Stopping.")
+            break
+        except UserPrivacyRestrictedError:
+            await event.reply(f"Cannot add {contact.get('first_name', 'Unknown')}: Privacy settings.")
+        except FloodWaitError as e:
+            await event.reply(f"FloodWait: let me sleep for {e.seconds} seconds.")
+            await asyncio.sleep(e.seconds)
+        except Exception as e:
+            await event.reply(f"Failed to add {contact.get('first_name', 'Unknown')}: {e}")
+
+    await event.reply(f"Finished adding members. Total added: {added_count}")
 
 async def main():
     global client
