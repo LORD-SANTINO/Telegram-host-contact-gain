@@ -1,6 +1,10 @@
 import os
 import asyncio
 import json
+import vobject
+import random
+from telethon.tl.functions.contacts import ImportContactsRequest
+from telethon.tl.types import InputPhoneContact
 from telethon import TelegramClient, events, errors
 from telethon.sessions import StringSession
 
@@ -169,6 +173,93 @@ async def all_messages(event):
         # Ignore commands here to avoid conflicts
         return
     await handle_message(event)
+
+
+@client.on(events.NewMessage(pattern='/upload_vcf'))
+async def upload_vcf_handler(event):
+    chat_id = event.chat_id
+    if chat_id not in user_clients:
+        await event.reply("You need to be logged in first via /start.")
+        return
+    await event.reply("Upload your VCF file now (send as a file).")
+
+@client.on(events.NewMessage)
+async def receive_vcf(event):
+    chat_id = event.chat_id
+    if chat_id not in user_clients or not event.document:
+        return
+
+    if event.document.mime_type == 'text/vcard' or (event.document.attributes and event.document.attributes[0].file_name.endswith('.vcf')):
+        vcf_path = await event.message.download_media(file='temp.vcf')
+        await process_and_store_vcf(event, vcf_path)
+    else:
+        await event.reply("Please upload a valid .vcf file.")
+
+async def process_and_store_vcf(event, vcf_path):
+    chat_id = event.chat_id
+    client = user_clients[chat_id]
+
+    contacts = []
+    try:
+        with open(vcf_path, 'r', encoding='utf-8') as f:
+            for vcard in vobject.readComponents(f):
+                name = getattr(vcard, 'fn', None)
+                if name:
+                    name = name.value
+                else:
+                    name = 'Unknown'
+                if hasattr(vcard, 'tel_list'):
+                    for tel in vcard.tel_list:
+                        phone_num = tel.value.strip().replace(' ', '').replace('-', '')
+                        if phone_num.startswith('+'):
+                            contacts.append({'phone': phone_num, 'name': name})
+    except Exception as e:
+        await event.reply(f"Failed to parse VCF file: {e}")
+        os.remove(vcf_path)
+        return
+
+    if not contacts:
+        await event.reply("No valid contacts found in the VCF file.")
+        os.remove(vcf_path)
+        return
+
+    imported_users = []
+    failed_contacts = []
+    batch_size = 30
+    pause_between = 10
+
+    for i in range(0, len(contacts), batch_size):
+        batch = contacts[i:i + batch_size]
+        phone_contacts = [
+            InputPhoneContact(
+                client_id=random.randint(0, 999999),
+                phone=c['phone'],
+                first_name=c['name'],
+                last_name=''
+            ) for c in batch
+        ]
+
+        try:
+            result = await client(ImportContactsRequest(contacts=phone_contacts))
+            for user in result.users:
+                imported_users.append({
+                    'id': user.id,
+                    'access_hash': user.access_hash,
+                    'first_name': user.first_name or 'Unknown',
+                    'phone': user.phone
+                })
+            await event.reply(f"Imported batch {i//batch_size+1}")
+            await asyncio.sleep(pause_between)
+        except Exception as e:
+            failed_contacts.extend(batch)
+            await event.reply(f"Error importing batch {i//batch_size+1}: {str(e)}")
+
+    # Save imported users to a user-specific file or memory
+    # This part you can customize depending on your app design
+
+    await event.reply(f"VCF processing complete. Imported {len(imported_users)} contacts.")
+
+    os.remove(vcf_path)
 
 async def main():
     global client
