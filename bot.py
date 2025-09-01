@@ -18,6 +18,8 @@ SESSIONS_DB = 'user_sessions.json'
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 
+client = TelegramClient('bot_session', API_ID, API_HASH)
+
 def save_all_sessions():
     # Save all StringSessions to file for persistence
     data = {}
@@ -266,8 +268,7 @@ async def main():
 
     load_all_sessions()  # Load all saved user sessions and initialize clients
 
-    # Create the bot client to listen for login commands and manage users
-    client = TelegramClient('bot_session', API_ID, API_HASH)
+    # Create the bot client to listen for
     await client.start()
     print("Bot is running...")
 
