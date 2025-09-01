@@ -42,7 +42,7 @@ def load_all_sessions():
 
     for chat_id_str, sess_str in user_sessions.items():
         chat_id = int(chat_id_str)
-        client = TelegramClient(StringSession(sess_str), BOT_API_ID, BOT_API_HASH)
+        client = TelegramClient(StringSession(sess_str), API_ID, API_HASH)
         user_clients[chat_id] = client
 
 async def start_login_flow(event):
