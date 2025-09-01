@@ -7,6 +7,10 @@ from telethon.sessions import StringSession
 user_states = {}    # Tracks user login steps by chat_id
 user_clients = {}   # Stores TelegramClient instances by chat_id
 SESSIONS_FILE = "sessions.json"
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+
+client = TelegramClient('bot_session', API_ID, API_HASH)
 
 def save_sessions():
     data = {}
@@ -154,10 +158,6 @@ async def all_messages(event):
 
 async def main():
     global client
-    API_ID = int(os.getenv("API_ID"))
-    API_HASH = os.getenv("API_HASH")
-
-    client = TelegramClient('bot_session', API_ID, API_HASH)
     await client.start()
     print("Bot is running...")
     await client.run_until_disconnected()
