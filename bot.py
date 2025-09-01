@@ -165,7 +165,7 @@ async def handle_message(event):
         user_states.pop(chat_id, None)
         user_clients.pop(chat_id, None)
 
-@events.register(events.NewMessage(pattern='/start'))
+@client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     await start_login_flow(event)
 
